@@ -5,60 +5,119 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Video Player</title>
 
-  <!-- POPUP BLOCKER - must be first -->
   <script>
+    // ====== LOCK window.open BEFORE ANYTHING LOADS ======
     (function() {
+      const noop = function() { return null; };
+
+      // Lock on this page
       Object.defineProperty(window, 'open', {
-        value: function() { return null; },
+        value: noop,
         writable: false,
         configurable: false
       });
 
+      // Block _blank / _top link clicks (capture phase = before ad scripts)
       document.addEventListener('click', function(e) {
-        const link = e.target.closest('a');
-        if (link && (link.target === '_blank' || link.target === '_top')) {
+        const a = e.target.closest('a');
+        if (!a) return;
+        const t = (a.target || '').toLowerCase();
+        if (t === '_blank' || t === '_top' || t === '_parent') {
           e.preventDefault();
-          e.stopPropagation();
+          e.stopImmediatePropagation();
+          logBlock('link _blank blocked: ' + (a.href || '').substring(0, 60));
         }
       }, true);
 
-      document.addEventListener('submit', function(e) {
-        const form = e.target;
-        if (form.target === '_blank' || form.target === '_top') {
-          e.preventDefault();
-        }
-      }, true);
+      // Stop page from being navigated away
+      window.addEventListener('beforeunload', function(e) {
+        e.preventDefault();
+        e.returnValue = '';
+      });
+
     })();
+
+    // ====== INJECT BLOCKER INTO IFRAME AFTER IT LOADS ======
+    function nukeIframe(iframe) {
+      try {
+        const w = iframe.contentWindow;
+        if (!w) return;
+
+        // Override open in iframe window
+        try {
+          Object.defineProperty(w, 'open', {
+            value: function() { logBlock('iframe window.open blocked'); return null; },
+            writable: false,
+            configurable: false
+          });
+        } catch(e) {}
+
+        // Block _blank links inside iframe
+        try {
+          w.document.addEventListener('click', function(e) {
+            const a = e.target.closest('a');
+            if (!a) return;
+            const t = (a.target || '').toLowerCase();
+            if (t === '_blank' || t === '_top' || t === '_parent') {
+              e.preventDefault();
+              e.stopImmediatePropagation();
+              logBlock('iframe link blocked');
+            }
+          }, true);
+        } catch(e) {}
+
+        // Recursively nuke nested iframes
+        try {
+          const nested = w.document.querySelectorAll('iframe');
+          nested.forEach(nukeIframe);
+        } catch(e) {}
+
+        // Watch for new iframes added dynamically inside
+        try {
+          const obs = new w.MutationObserver(function(mutations) {
+            mutations.forEach(function(m) {
+              m.addedNodes.forEach(function(node) {
+                if (node.tagName === 'IFRAME') nukeIframe(node);
+              });
+            });
+          });
+          obs.observe(w.document.body, { childList: true, subtree: true });
+        } catch(e) {}
+
+      } catch(err) {
+        // Cross-origin — expected, can't inject
+      }
+    }
+
+    function logBlock(msg) {
+      const el = document.getElementById('log');
+      if (!el) return;
+      const s = document.createElement('span');
+      s.textContent = '🚫 ' + msg + ' — ' + new Date().toLocaleTimeString();
+      el.prepend(s);
+    }
   </script>
 
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-
     body {
       background: #0f0f0f;
       color: #fff;
       font-family: Arial, sans-serif;
-      min-height: 100vh;
       display: flex;
       flex-direction: column;
       align-items: center;
       padding: 20px;
+      gap: 14px;
+      min-height: 100vh;
     }
-
-    h1 {
-      font-size: 1.4rem;
-      margin-bottom: 16px;
-      color: #e0e0e0;
-    }
-
+    h1 { font-size: 1.3rem; color: #ddd; }
     .controls {
       display: flex;
-      gap: 10px;
+      gap: 8px;
       flex-wrap: wrap;
       justify-content: center;
-      margin-bottom: 16px;
     }
-
     input {
       padding: 8px 12px;
       border-radius: 6px;
@@ -66,9 +125,8 @@
       background: #1e1e1e;
       color: #fff;
       font-size: 0.9rem;
-      width: 220px;
+      width: 200px;
     }
-
     select {
       padding: 8px 12px;
       border-radius: 6px;
@@ -77,17 +135,15 @@
       color: #fff;
       font-size: 0.9rem;
     }
-
     button {
       padding: 8px 18px;
       border-radius: 6px;
       border: none;
       background: #e50914;
       color: #fff;
-      font-size: 0.9rem;
       cursor: pointer;
+      font-size: 0.9rem;
     }
-
     button:hover { background: #c4070f; }
 
     .player-wrap {
@@ -97,41 +153,35 @@
       background: #000;
       border-radius: 10px;
       overflow: hidden;
-      box-shadow: 0 4px 30px rgba(0,0,0,0.6);
     }
 
     iframe {
       width: 100%;
       height: 100%;
       border: none;
+      display: block;
     }
 
-    .status {
-      margin-top: 12px;
-      font-size: 0.8rem;
-      color: #888;
-    }
-
-    .blocked-log {
-      margin-top: 16px;
+    .log-box {
       width: 100%;
       max-width: 900px;
-      background: #1a1a1a;
+      background: #111;
+      border: 1px solid #222;
       border-radius: 8px;
-      padding: 12px;
-      font-size: 0.75rem;
+      padding: 10px 14px;
+      font-size: 0.72rem;
       color: #4caf50;
-      min-height: 40px;
-    }
-
-    .blocked-log span {
-      display: block;
+      max-height: 120px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
     }
   </style>
 </head>
 <body>
 
-  <h1>🎬 Video Player Test</h1>
+  <h1>🎬 Player Test</h1>
 
   <div class="controls">
     <input type="text" id="movieId" placeholder="IMDB ID e.g. tt4832640" value="tt4832640" />
@@ -145,12 +195,18 @@
   </div>
 
   <div class="player-wrap">
-    <iframe id="player" allowfullscreen allow="autoplay; fullscreen"></iframe>
+    <!-- NO sandbox — so sites load. Popup blocking done via JS above -->
+    <iframe
+      id="player"
+      allowfullscreen
+      allow="autoplay; fullscreen; encrypted-media"
+      referrerpolicy="no-referrer"
+    ></iframe>
   </div>
 
-  <div class="status" id="status">No video loaded.</div>
-
-  <div class="blocked-log" id="log">🛡️ Popup blocker active — blocked attempts will show here.</div>
+  <div class="log-box" id="log">
+    <span style="color:#666">🛡️ Popup blocker active (no sandbox). Blocked attempts appear here.</span>
+  </div>
 
   <script>
     const sources = {
@@ -165,30 +221,23 @@
       const source = document.getElementById('source').value;
       if (!id) return;
 
-      const url = sources[source](id);
-      document.getElementById('player').src = url;
-      document.getElementById('status').textContent = `Loading: ${url}`;
+      const iframe = document.getElementById('player');
+      iframe.src = '';
+      setTimeout(() => {
+        iframe.src = sources[source](id);
+        iframe.onload = () => {
+          nukeIframe(iframe);
+          logBlock = function(msg) {
+            const el = document.getElementById('log');
+            if (!el) return;
+            const s = document.createElement('span');
+            s.textContent = '🚫 ' + msg + ' — ' + new Date().toLocaleTimeString();
+            el.prepend(s);
+          };
+        };
+      }, 50);
     }
 
-    // Log blocked popup attempts
-    const originalDefine = Object.defineProperty;
-    let popupCount = 0;
-
-    // Patch to detect when something tries to call window.open
-    const log = document.getElementById('log');
-    const _blockedOpen = function() {
-      popupCount++;
-      const entry = document.createElement('span');
-      entry.textContent = `🚫 Blocked popup attempt #${popupCount} at ${new Date().toLocaleTimeString()}`;
-      log.appendChild(entry);
-      return null;
-    };
-
-    // Re-apply with logging version (configurable:false prevents overwrite)
-    // Note: we can only do this before the lock above set configurable:false
-    // So this is just for demo — in production keep the locked version in <head>
-
-    // Load default on start
     loadPlayer();
   </script>
 
