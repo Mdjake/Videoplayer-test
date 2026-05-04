@@ -7,11 +7,96 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 
   <script>
+    // ═══════════════════════════════════════════
+    //  LAYER 1 — Lock window.open
+    // ═══════════════════════════════════════════
     Object.defineProperty(window, 'open', {
-      value: function() { return null; },
+      value: function() { autoBackLog('window.open blocked'); return null; },
       writable: false, configurable: false
     });
-    window.addEventListener('beforeunload', e => { e.preventDefault(); e.returnValue = ''; });
+
+    // ═══════════════════════════════════════════
+    //  LAYER 2 — AUTO BACK
+    //  If anything tries to navigate THIS page away,
+    //  we instantly go back.
+    // ═══════════════════════════════════════════
+
+    // Push a history entry so we always have somewhere to go back to
+    history.pushState({ home: true }, '', window.location.href);
+
+    // If something navigates us away (replaceState, assign, href change)
+    // the popstate fires — we go forward back to our page
+    window.addEventListener('popstate', function(e) {
+      // We got popped — push back immediately
+      history.pushState({ home: true }, '', window.location.href);
+      autoBackLog('🔙 Auto-back fired — navigation blocked');
+    });
+
+    // Intercept location.href = '...' and location.assign()
+    (function() {
+      const origAssign   = location.assign.bind(location);
+      const origReplace  = location.replace.bind(location);
+
+      try {
+        Object.defineProperty(window.location, 'href', {
+          set: function(val) {
+            autoBackLog('location.href blocked: ' + String(val).substring(0, 60));
+            // Don't navigate
+          },
+          configurable: true
+        });
+      } catch(e) {}
+
+      try {
+        window.location.assign = function(url) {
+          autoBackLog('location.assign blocked: ' + String(url).substring(0, 60));
+        };
+        window.location.replace = function(url) {
+          autoBackLog('location.replace blocked: ' + String(url).substring(0, 60));
+        };
+      } catch(e) {}
+    })();
+
+    // Block beforeunload navigation (tab close / URL change)
+    window.addEventListener('beforeunload', function(e) {
+      e.preventDefault();
+      e.returnValue = '';
+      return '';
+    });
+
+    // Block _blank / _top link clicks on THIS page
+    document.addEventListener('click', function(e) {
+      const a = e.target.closest('a');
+      if (!a) return;
+      const t = (a.target || '').toLowerCase();
+      const href = a.href || '';
+      if (t === '_blank' || t === '_top' || t === '_parent' ||
+          (href && !href.startsWith(location.origin) && !href.startsWith('#') && !href.startsWith('javascript'))) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        autoBackLog('link blocked: ' + href.substring(0, 60));
+      }
+    }, true);
+
+    function autoBackLog(msg) {
+      // Safe logger — works even before DOM is ready
+      window._pendingLogs = window._pendingLogs || [];
+      window._pendingLogs.push(new Date().toLocaleTimeString() + ' · 🔙 ' + msg);
+      // If DOM ready, flush immediately
+      flushLogs();
+    }
+
+    function flushLogs() {
+      const el = document.getElementById('log');
+      if (!el || !window._pendingLogs) return;
+      while (window._pendingLogs.length) {
+        const msg = window._pendingLogs.shift();
+        const s = document.createElement('span');
+        s.textContent = msg;
+        s.style.color = '#ff9800';
+        el.prepend(s);
+      }
+    }
   </script>
 
   <style>
@@ -54,8 +139,9 @@
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
     }
+    .badges { display: flex; gap: 8px; align-items: center; }
     .badge {
-      font-size: 0.65rem;
+      font-size: 0.62rem;
       background: #1a1a1a;
       border: 1px solid var(--border);
       color: #4caf50;
@@ -63,6 +149,7 @@
       border-radius: 20px;
       letter-spacing: 1px;
     }
+    .badge.orange { color: #ff9800; }
 
     .search-row {
       width: 100%;
@@ -128,7 +215,6 @@
       display: block;
     }
 
-    /* Overlay blocks all iframe clicks */
     #overlay {
       position: absolute;
       inset: 0;
@@ -138,7 +224,6 @@
     }
     #overlay.unlocked { display: none; }
 
-    /* Idle screen */
     #idle-screen {
       position: absolute;
       inset: 0;
@@ -154,7 +239,7 @@
     }
     #idle-screen.hidden { opacity: 0; }
 
-    /* Countdown badge inside player (top-right, out of the way) */
+    /* Countdown badge top-right */
     #countdown-badge {
       position: absolute;
       top: 10px;
@@ -163,8 +248,8 @@
       display: flex;
       align-items: center;
       gap: 8px;
-      background: rgba(0,0,0,0.75);
-      border: 1px solid rgba(255,60,60,0.5);
+      background: rgba(0,0,0,0.8);
+      border: 1px solid rgba(255,60,60,0.4);
       color: #fff;
       font-size: 0.72rem;
       padding: 5px 12px 5px 8px;
@@ -182,7 +267,7 @@
     #countdown-num {
       position: absolute; inset: 0;
       display: flex; align-items: center; justify-content: center;
-      font-size: 0.6rem; font-weight: 700; color: #fff;
+      font-size: 0.6rem; font-weight: 700;
     }
 
     #lock-btn {
@@ -193,7 +278,67 @@
     }
     #lock-btn:hover { background: rgba(255,60,60,0.6); }
 
-    /* ── CONTROLS BAR — OUTSIDE PLAYER ── */
+    /* Auto-back flash banner */
+    #autoback-flash {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 100;
+      background: rgba(255, 152, 0, 0.93);
+      color: #fff;
+      font-size: 0.82rem;
+      font-weight: 600;
+      padding: 10px 22px;
+      border-radius: 30px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.15s;
+      white-space: nowrap;
+    }
+    #autoback-flash.show { opacity: 1; }
+
+    /* Fullscreen floating controls */
+    #fs-controls {
+      display: none;
+      position: fixed;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 2147483647;
+      background: rgba(10,10,10,0.92);
+      border: 1px solid #333;
+      border-radius: 30px;
+      padding: 8px 16px;
+      gap: 10px;
+      align-items: center;
+    }
+    :fullscreen #fs-controls,
+    :-webkit-full-screen #fs-controls { display: flex; }
+
+    .fs-btn {
+      background: none; border: none; color: #fff;
+      cursor: pointer; padding: 6px 10px; border-radius: 8px;
+      font-family: 'DM Sans', sans-serif; font-size: 0.78rem;
+      display: flex; align-items: center; gap: 5px;
+    }
+    .fs-btn:hover { background: rgba(255,255,255,0.1); }
+    .fs-btn svg { width: 16px; height: 16px; fill: #fff; }
+    .fs-unlock-btn {
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 20px; padding: 6px 14px; font-weight: 500;
+    }
+
+    :fullscreen #overlay,
+    :-webkit-full-screen #overlay {
+      position: fixed; inset: 0; z-index: 2147483646;
+    }
+    :fullscreen #countdown-badge,
+    :-webkit-full-screen #countdown-badge {
+      position: fixed; top: 10px; right: 12px; z-index: 2147483647;
+    }
+
+    /* ── CONTROLS BAR ── */
     .controls-bar {
       width: 100%;
       max-width: 900px;
@@ -219,27 +364,21 @@
       gap: 6px;
       font-family: 'DM Sans', sans-serif;
       font-size: 0.78rem;
-      transition: background 0.15s, border-color 0.15s;
+      transition: background 0.15s;
       white-space: nowrap;
     }
-    .ctrl-btn:hover { background: #222; border-color: #333; }
+    .ctrl-btn:hover { background: #222; }
     .ctrl-btn svg { width: 16px; height: 16px; fill: #fff; flex-shrink: 0; }
 
     .unlock-btn {
       background: linear-gradient(135deg, var(--accent), var(--accent2));
-      border: none;
-      font-weight: 500;
-      font-size: 0.82rem;
+      border: none; font-weight: 500; font-size: 0.82rem;
       padding: 9px 18px;
     }
-    .unlock-btn:hover { opacity: 0.9; background: linear-gradient(135deg, var(--accent), var(--accent2)); }
+    .unlock-btn:hover { opacity: 0.9; }
 
     .spacer { flex: 1; }
-
-    .source-label {
-      font-size: 0.68rem;
-      color: var(--muted);
-    }
+    .source-label { font-size: 0.68rem; color: var(--muted); }
 
     /* ── LOG ── */
     .log-box {
@@ -251,84 +390,23 @@
       padding: 10px 14px;
       font-size: 0.7rem;
       color: #4caf50;
-      max-height: 80px;
+      max-height: 100px;
       overflow-y: auto;
       display: flex;
       flex-direction: column;
       gap: 3px;
     }
     .log-box .muted { color: var(--muted); }
-
-    /* ── FULLSCREEN: move overlay INSIDE fullscreen context ── */
-    /* When fullscreen is active on the container, overlay must still work */
-    :fullscreen #overlay,
-    :-webkit-full-screen #overlay,
-    :-moz-full-screen #overlay {
-      position: fixed;
-      inset: 0;
-      z-index: 2147483647;
-    }
-
-    :fullscreen #countdown-badge,
-    :-webkit-full-screen #countdown-badge,
-    :-moz-full-screen #countdown-badge {
-      position: fixed;
-      top: 10px;
-      right: 12px;
-      z-index: 2147483647;
-    }
-
-    /* Fullscreen controls floating bar */
-    #fs-controls {
-      display: none;
-      position: fixed;
-      bottom: 16px;
-      left: 50%;
-      transform: translateX(-50%);
-      z-index: 2147483647;
-      background: rgba(10,10,10,0.9);
-      border: 1px solid #333;
-      border-radius: 30px;
-      padding: 8px 16px;
-      gap: 10px;
-      align-items: center;
-    }
-
-    :fullscreen #fs-controls,
-    :-webkit-full-screen #fs-controls,
-    :-moz-full-screen #fs-controls {
-      display: flex;
-    }
-
-    .fs-btn {
-      background: none;
-      border: none;
-      color: #fff;
-      cursor: pointer;
-      padding: 6px 10px;
-      border-radius: 8px;
-      font-family: 'DM Sans', sans-serif;
-      font-size: 0.78rem;
-      display: flex;
-      align-items: center;
-      gap: 5px;
-    }
-    .fs-btn:hover { background: rgba(255,255,255,0.1); }
-    .fs-btn svg { width: 16px; height: 16px; fill: #fff; }
-
-    .fs-unlock-btn {
-      background: linear-gradient(135deg, var(--accent), var(--accent2));
-      border-radius: 20px;
-      padding: 6px 14px;
-      font-weight: 500;
-    }
   </style>
 </head>
 <body>
 
   <header>
     <div class="logo">StreamVault</div>
-    <div class="badge">🛡 AD SHIELD ON</div>
+    <div class="badges">
+      <div class="badge">🛡 AD SHIELD</div>
+      <div class="badge orange">🔙 AUTO BACK</div>
+    </div>
   </header>
 
   <div class="search-row">
@@ -342,7 +420,6 @@
     <button class="btn-load" onclick="loadPlayer()">Load</button>
   </div>
 
-  <!-- PLAYER -->
   <div class="player-container" id="playerContainer">
 
     <iframe
@@ -352,16 +429,14 @@
       referrerpolicy="no-referrer"
     ></iframe>
 
-    <!-- Overlay blocks iframe clicks -->
     <div id="overlay"></div>
 
-    <!-- Idle -->
     <div id="idle-screen">
       <svg width="48" height="48" viewBox="0 0 24 24" fill="#333"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg>
       <div style="color:#444;font-size:0.8rem;letter-spacing:1px">LOAD A MOVIE TO BEGIN</div>
     </div>
 
-    <!-- Countdown badge — top right corner, safe spot -->
+    <!-- Countdown badge -->
     <div id="countdown-badge">
       <div id="countdown-ring">
         <svg viewBox="0 0 20 20">
@@ -374,7 +449,10 @@
       <button id="lock-btn" onclick="lockNow()">🔒 Lock</button>
     </div>
 
-    <!-- Fullscreen floating controls (only visible in fullscreen) -->
+    <!-- Auto-back flash -->
+    <div id="autoback-flash">🔙 Blocked & returned!</div>
+
+    <!-- Fullscreen floating controls -->
     <div id="fs-controls">
       <button class="fs-btn fs-unlock-btn" onclick="unlockTemporarily(5)">
         <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
@@ -392,9 +470,8 @@
 
   </div>
 
-  <!-- CONTROLS BAR — OUTSIDE PLAYER, SAFE FROM ADS -->
+  <!-- ALL CONTROLS OUTSIDE PLAYER — SAFE -->
   <div class="controls-bar">
-
     <button class="ctrl-btn unlock-btn" onclick="unlockTemporarily(5)">
       <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
       Play / Unmute (5s)
@@ -412,14 +489,16 @@
       <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
       Fullscreen
     </button>
-
   </div>
 
   <div class="log-box" id="log">
-    <span class="muted">🛡️ Overlay active — all iframe clicks blocked. Use controls above to interact.</span>
+    <span class="muted">🛡️ Shield active · 🔙 Auto-back active · Use Play/Unmute to interact with player</span>
   </div>
 
   <script>
+    // Flush any pre-DOM logs
+    document.addEventListener('DOMContentLoaded', flushLogs);
+
     const sources = {
       vidsrc:    id => `https://vidsrc.me/embed/movie?imdb=${id}`,
       '2embed':  id => `https://www.2embed.to/embed/imdb/${id}`,
@@ -429,35 +508,77 @@
 
     let loaded = false;
     let countdownInterval = null;
-    const UNLOCK_SECS = 5;
-    const CIRCUMFERENCE = 56.5; // 2 * pi * 9
+    const CIRCUMFERENCE = 56.5;
+
+    // ── Watch for iframe src changing to something unexpected ──
+    // Some ad scripts change iframe.src to redirect user
+    const player = document.getElementById('player');
+    let lastSrc = '';
+
+    const srcObserver = new MutationObserver(function(mutations) {
+      mutations.forEach(function(m) {
+        if (m.attributeName === 'src') {
+          const newSrc = player.getAttribute('src');
+          if (newSrc && newSrc !== lastSrc && lastSrc !== '') {
+            // Something changed the src — check if it's unexpected
+            const isKnown = Object.values(sources).some(fn => {
+              try { return newSrc.startsWith(fn('').split('/').slice(0,3).join('/')); } catch(e) { return false; }
+            });
+            if (!isKnown) {
+              addLog('🔙 iframe src hijack blocked: ' + newSrc.substring(0, 60));
+              player.src = lastSrc; // restore
+              showAutoBackFlash();
+            } else {
+              lastSrc = newSrc;
+            }
+          } else {
+            lastSrc = newSrc || '';
+          }
+        }
+      });
+    });
+    srcObserver.observe(player, { attributes: true, attributeFilter: ['src'] });
+
+    // ── Visibility change: if page was hidden (new tab opened), come back ──
+    document.addEventListener('visibilitychange', function() {
+      if (document.hidden) {
+        // Page got hidden — likely a popup tab opened
+        // Schedule a focus back
+        setTimeout(() => {
+          window.focus();
+          addLog('🔙 Tab focus stolen — refocused');
+        }, 100);
+      }
+    });
+
+    function showAutoBackFlash() {
+      const flash = document.getElementById('autoback-flash');
+      flash.classList.add('show');
+      setTimeout(() => flash.classList.remove('show'), 1500);
+    }
 
     function loadPlayer() {
       const id = document.getElementById('movieId').value.trim();
       const source = document.getElementById('source').value;
       if (!id) return;
 
-      const iframe = document.getElementById('player');
-      iframe.src = sources[source](id);
+      const url = sources[source](id);
+      player.src = url;
+      lastSrc = url;
 
       document.getElementById('idle-screen').classList.add('hidden');
       document.getElementById('sourceLabel').textContent = source + ' · ' + id;
       loaded = true;
 
-      addLog('▶ Loaded: ' + sources[source](id));
+      addLog('▶ Loaded: ' + url);
     }
 
     function unlockTemporarily(secs) {
       if (!loaded) { loadPlayer(); return; }
-
       clearCountdown();
 
-      const overlay = document.getElementById('overlay');
-      const badge = document.getElementById('countdown-badge');
-
-      overlay.classList.add('unlocked');
-      badge.classList.add('show');
-
+      document.getElementById('overlay').classList.add('unlocked');
+      document.getElementById('countdown-badge').classList.add('show');
       addLog('🔓 Overlay lifted for ' + secs + 's — click player now');
 
       let remaining = secs;
@@ -469,8 +590,7 @@
 
       countdownInterval = setInterval(() => {
         remaining -= 0.05;
-        const pct = 1 - (remaining / secs);
-        ring.style.strokeDashoffset = CIRCUMFERENCE * pct;
+        ring.style.strokeDashoffset = CIRCUMFERENCE * (1 - remaining / secs);
         numEl.textContent = Math.ceil(remaining);
         if (remaining <= 0) lockNow();
       }, 50);
@@ -480,7 +600,7 @@
       clearCountdown();
       document.getElementById('overlay').classList.remove('unlocked');
       document.getElementById('countdown-badge').classList.remove('show');
-      addLog('🔒 Re-locked — ads blocked');
+      addLog('🔒 Re-locked');
     }
 
     function clearCountdown() {
@@ -488,16 +608,14 @@
     }
 
     function reloadPlayer() {
-      const iframe = document.getElementById('player');
-      const src = iframe.src;
-      iframe.src = '';
-      setTimeout(() => { iframe.src = src; }, 80);
+      const src = player.src;
+      player.src = '';
+      setTimeout(() => { player.src = src; lastSrc = src; }, 80);
       lockNow();
       addLog('↺ Reloaded');
     }
 
     function goFullscreen() {
-      // Fullscreen the container so our overlay + fs-controls go fullscreen too
       const container = document.getElementById('playerContainer');
       if (document.fullscreenElement) {
         document.exitFullscreen();
@@ -505,15 +623,16 @@
         container.requestFullscreen();
       } else if (container.webkitRequestFullscreen) {
         container.webkitRequestFullscreen();
-      } else if (container.mozRequestFullScreen) {
-        container.mozRequestFullScreen();
       }
     }
 
     function addLog(msg) {
+      flushLogs();
       const el = document.getElementById('log');
+      if (!el) return;
       const s = document.createElement('span');
       s.textContent = new Date().toLocaleTimeString() + ' · ' + msg;
+      if (msg.includes('🔙')) s.style.color = '#ff9800';
       el.prepend(s);
     }
   </script>
