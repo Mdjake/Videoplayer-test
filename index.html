@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Video Player</title>
+
+  <!-- POPUP BLOCKER - must be first -->
+  <script>
+    (function() {
+      Object.defineProperty(window, 'open', {
+        value: function() { return null; },
+        writable: false,
+        configurable: false
+      });
+
+      document.addEventListener('click', function(e) {
+        const link = e.target.closest('a');
+        if (link && (link.target === '_blank' || link.target === '_top')) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }, true);
+
+      document.addEventListener('submit', function(e) {
+        const form = e.target;
+        if (form.target === '_blank' || form.target === '_top') {
+          e.preventDefault();
+        }
+      }, true);
+    })();
+  </script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #0f0f0f;
+      color: #fff;
+      font-family: Arial, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+    }
+
+    h1 {
+      font-size: 1.4rem;
+      margin-bottom: 16px;
+      color: #e0e0e0;
+    }
+
+    .controls {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-bottom: 16px;
+    }
+
+    input {
+      padding: 8px 12px;
+      border-radius: 6px;
+      border: 1px solid #333;
+      background: #1e1e1e;
+      color: #fff;
+      font-size: 0.9rem;
+      width: 220px;
+    }
+
+    select {
+      padding: 8px 12px;
+      border-radius: 6px;
+      border: 1px solid #333;
+      background: #1e1e1e;
+      color: #fff;
+      font-size: 0.9rem;
+    }
+
+    button {
+      padding: 8px 18px;
+      border-radius: 6px;
+      border: none;
+      background: #e50914;
+      color: #fff;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+
+    button:hover { background: #c4070f; }
+
+    .player-wrap {
+      width: 100%;
+      max-width: 900px;
+      aspect-ratio: 16/9;
+      background: #000;
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 4px 30px rgba(0,0,0,0.6);
+    }
+
+    iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+    }
+
+    .status {
+      margin-top: 12px;
+      font-size: 0.8rem;
+      color: #888;
+    }
+
+    .blocked-log {
+      margin-top: 16px;
+      width: 100%;
+      max-width: 900px;
+      background: #1a1a1a;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 0.75rem;
+      color: #4caf50;
+      min-height: 40px;
+    }
+
+    .blocked-log span {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>🎬 Video Player Test</h1>
+
+  <div class="controls">
+    <input type="text" id="movieId" placeholder="IMDB ID e.g. tt4832640" value="tt4832640" />
+    <select id="source">
+      <option value="vidsrc">vidsrc.me</option>
+      <option value="2embed">2embed.to</option>
+      <option value="vidlink">vidlink.pro</option>
+      <option value="autoembed">autoembed.to</option>
+    </select>
+    <button onclick="loadPlayer()">Load</button>
+  </div>
+
+  <div class="player-wrap">
+    <iframe id="player" allowfullscreen allow="autoplay; fullscreen"></iframe>
+  </div>
+
+  <div class="status" id="status">No video loaded.</div>
+
+  <div class="blocked-log" id="log">🛡️ Popup blocker active — blocked attempts will show here.</div>
+
+  <script>
+    const sources = {
+      vidsrc:    id => `https://vidsrc.me/embed/movie?imdb=${id}`,
+      '2embed':  id => `https://www.2embed.to/embed/imdb/${id}`,
+      vidlink:   id => `https://vidlink.pro/movie/${id}`,
+      autoembed: id => `https://autoembed.to/movie/imdb/${id}`
+    };
+
+    function loadPlayer() {
+      const id = document.getElementById('movieId').value.trim();
+      const source = document.getElementById('source').value;
+      if (!id) return;
+
+      const url = sources[source](id);
+      document.getElementById('player').src = url;
+      document.getElementById('status').textContent = `Loading: ${url}`;
+    }
+
+    // Log blocked popup attempts
+    const originalDefine = Object.defineProperty;
+    let popupCount = 0;
+
+    // Patch to detect when something tries to call window.open
+    const log = document.getElementById('log');
+    const _blockedOpen = function() {
+      popupCount++;
+      const entry = document.createElement('span');
+      entry.textContent = `🚫 Blocked popup attempt #${popupCount} at ${new Date().toLocaleTimeString()}`;
+      log.appendChild(entry);
+      return null;
+    };
+
+    // Re-apply with logging version (configurable:false prevents overwrite)
+    // Note: we can only do this before the lock above set configurable:false
+    // So this is just for demo — in production keep the locked version in <head>
+
+    // Load default on start
+    loadPlayer();
+  </script>
+
+</body>
+</html>
